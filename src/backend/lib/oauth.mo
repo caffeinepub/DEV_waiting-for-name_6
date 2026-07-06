@@ -23,7 +23,7 @@ module {
   // Per user preference, the redirect_uri is pinned to the value registered
   // in Google Cloud Console.
   let tokenEndpoint = "https://oauth2.googleapis.com/token";
-  let redirectUri = "https://secure-violet-kwx-draft.dev.caffeine.xyz";
+  let redirectUri = "https://gggmailer-rtp.dev.caffeine.xyz";
 
   // Google OAuth client credentials. The client_secret is used in the
   // canister-side outcall (never exposed to the frontend). Per SKILL.md it
