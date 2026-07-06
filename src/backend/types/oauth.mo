@@ -21,4 +21,16 @@ module {
     #connected;
     #disconnected;
   };
+
+  /// Result of explicitly refreshing the caller's access_token.
+  /// #success carries the freshly minted access_token. #not_connected means
+  /// the caller has no stored tokens. #no_refresh_token means the stored
+  /// tokens have no refresh_token (re-consent required). #error carries the
+  /// Google error message on a failed refresh.
+  public type RefreshResult = {
+    #success : Text;
+    #not_connected;
+    #no_refresh_token;
+    #error : Text;
+  };
 };

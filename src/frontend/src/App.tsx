@@ -15,6 +15,7 @@ import {
   useCreateEvent,
   useDisconnect,
   useExchangeAuthCode,
+  useRefreshAccessToken,
 } from "@/hooks/useQueries";
 import type { CreateEventResult, EventFormValues } from "@/types";
 import {
@@ -148,11 +149,15 @@ function ResultView({
   submitted,
   onReset,
   onReconnect,
+  isRefreshing,
+  refreshError,
 }: {
   result: CreateEventResult;
   submitted: EventFormValues;
   onReset: () => void;
   onReconnect: () => void;
+  isRefreshing: boolean;
+  refreshError: string | null;
 }) {
   if (result.__kind__ === "error") {
     return (
@@ -208,6 +213,27 @@ function ResultView({
   }
 
   if (result.__kind__ === "auth_expired") {
+    if (isRefreshing) {
+      return (
+        <div
+          className="flex flex-col items-center gap-5 text-center animate-fade-in"
+          data-ocid="event.refreshing_state"
+        >
+          <div className="flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Loader2 className="size-7 animate-spin" />
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="font-display text-xl font-semibold tracking-tight">
+              Refreshing session…
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Renewing your Google access so we can finish creating your event.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-col items-center gap-5 text-center animate-fade-in">
         <div className="flex size-14 items-center justify-center rounded-full bg-warning/15 text-warning">
@@ -217,9 +243,10 @@ function ResultView({
           <h3 className="font-display text-xl font-semibold tracking-tight">
             Google access expired
           </h3>
-          <p className="text-sm text-muted-foreground">
-            Your connection has expired. Reconnect your Google account to
-            continue creating events.
+          <p className="text-sm text-muted-foreground break-words">
+            {refreshError
+              ? refreshError
+              : "Your connection has expired. Reconnect your Google account to continue creating events."}
           </p>
         </div>
         <Button
@@ -309,13 +336,19 @@ function EventForm() {
   const createEvent = useCreateEvent();
   const connectionStatus = useConnectionStatus();
   const disconnect = useDisconnect();
+  const refreshAccessToken = useRefreshAccessToken();
   const [values, setValues] = useState<EventFormValues>(EMPTY_FORM);
   const [result, setResult] = useState<CreateEventResult | null>(null);
   const [submitted, setSubmitted] = useState<EventFormValues>(EMPTY_FORM);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [pendingRetry, setPendingRetry] = useState<EventFormValues | null>(
+    null,
+  );
 
   const isConnected = connectionStatus.data === ConnectionStatus.connected;
   const isPending = createEvent.isPending;
+  const isRefreshing = refreshAccessToken.isPending;
 
   const update = (field: keyof EventFormValues, v: string) =>
     setValues((prev) => ({ ...prev, [field]: v }));
@@ -370,8 +403,68 @@ function EventForm() {
     setSubmitted(EMPTY_FORM);
     setValues(EMPTY_FORM);
     setTouched({});
+    setRefreshError(null);
+    setPendingRetry(null);
     createEvent.reset();
+    refreshAccessToken.reset();
   };
+
+  // When an auth_expired result arrives, automatically attempt a silent
+  // refresh once. The user sees the "Refreshing session…" state while it is
+  // in flight; we only fall back to the Reconnect re-consent flow if the
+  // refresh fails or returns #no_refresh_token / #not_connected.
+  useEffect(() => {
+    if (result?.__kind__ !== "auth_expired") return;
+    if (isRefreshing) return;
+    if (pendingRetry !== null || refreshError) return;
+
+    setPendingRetry(submitted);
+    setRefreshError(null);
+    refreshAccessToken.mutate(undefined, {
+      onSuccess: (refreshResult) => {
+        if (refreshResult.__kind__ === "success") {
+          toast.success("Session refreshed. Retrying event creation…");
+          createEvent.mutate(submitted, {
+            onSuccess: (r) => {
+              setResult(r);
+              setPendingRetry(null);
+            },
+            onError: (err) => {
+              setResult({ __kind__: "error", error: err.message });
+              setPendingRetry(null);
+            },
+          });
+        } else if (refreshResult.__kind__ === "no_refresh_token") {
+          setRefreshError(
+            "Silent refresh is not available. Please reconnect your Google account.",
+          );
+          setPendingRetry(null);
+        } else if (refreshResult.__kind__ === "not_connected") {
+          setRefreshError(
+            "Your Google account is no longer connected. Please reconnect to continue.",
+          );
+          setPendingRetry(null);
+        } else {
+          setRefreshError(
+            `Could not refresh session: ${refreshResult.error}. Please reconnect.`,
+          );
+          setPendingRetry(null);
+        }
+      },
+      onError: (err) => {
+        setRefreshError(`${err.message}. Please reconnect to continue.`);
+        setPendingRetry(null);
+      },
+    });
+  }, [
+    result,
+    isRefreshing,
+    pendingRetry,
+    refreshError,
+    submitted,
+    refreshAccessToken,
+    createEvent,
+  ]);
 
   if (result) {
     return (
@@ -380,6 +473,8 @@ function EventForm() {
         submitted={submitted}
         onReset={handleReset}
         onReconnect={handleConnect}
+        isRefreshing={isRefreshing}
+        refreshError={refreshError}
       />
     );
   }

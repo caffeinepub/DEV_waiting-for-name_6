@@ -5,7 +5,9 @@ import { type CalendarEventsInsertSendUpdatesParameter; JSON = CalendarEventsIns
 import { type Config; defaultConfig } "mo:googlecalendar-client/Config";
 import { type Event; JSON = Event } "mo:googlecalendar-client/Models/Event";
 import { type EventDateTime; JSON = EventDateTime } "mo:googlecalendar-client/Models/EventDateTime";
+import Principal "mo:core/Principal";
 import Text "mo:core/Text";
+import OAuthLib "../lib/oauth";
 import Types "../types/calendar";
 
 module {
@@ -13,15 +15,9 @@ module {
   public type CreatedEvent = Types.CreatedEvent;
   public type CreateEventResult = Types.CreateEventResult;
 
-  /// Calls calendar_events_insert from the googlecalendar-client connector
-  /// (Apis/EventsApi.mo) to create the event in the user's Google Calendar,
-  /// using the caller's stored access_token as a bearer auth config. Per user
-  /// preference, only title + start/end time are sent. Per SKILL.md, the
-  /// insert outcall MUST use is_replicated=?false to avoid duplicate writes
-  /// across replicas. Returns #success with the created event's id and
-  /// htmlLink, #auth_expired on a 401/expired-token response, or #error with
-  /// a message from the Google API response.
-  public func createEvent(input : EventInput, accessToken : Text) : async CreateEventResult {
+  /// Builds the googlecalendar-client Event payload from an EventInput.
+  /// Per user preference, only title + start/end time are sent.
+  func buildEvent(input : EventInput) : Event {
     let start : EventDateTime = {
       EventDateTime.init {} with
         dateTime = ?input.startTime;
@@ -30,12 +26,20 @@ module {
       EventDateTime.init {} with
         dateTime = ?input.endTime;
     };
-    let event : Event = {
+    {
       Event.init {} with
         summary = ?input.title;
         start = ?start;
         end = ?end;
     };
+  };
+
+  /// Performs a single calendar_events_insert outcall with the given bearer
+  /// access token. Returns #success with the created event's id/htmlLink,
+  /// #auth_expired on a 401/expired-token response, or #error with a message
+  /// from the Google API response. Pure outcall helper — no refresh logic.
+  func insertOnce(input : EventInput, accessToken : Text) : async CreateEventResult {
+    let event = buildEvent(input);
 
     let config : Config = {
       defaultConfig with
@@ -78,6 +82,55 @@ module {
       } else {
         #error(msg);
       };
+    };
+  };
+
+  /// Calls calendar_events_insert from the googlecalendar-client connector
+  /// (Apis/EventsApi.mo) to create the event in the user's Google Calendar,
+  /// using the caller's stored access_token as a bearer auth config. Per user
+  /// preference, only title + start/end time are sent. Per SKILL.md, the
+  /// insert outcall MUST use is_replicated=?false to avoid duplicate writes
+  /// across replicas.
+  ///
+  /// On HTTP 401, attempts ONE refresh_access_token retry before giving up:
+  /// redeems the caller's stored refresh_token via OAuthLib.refreshAccessToken,
+  /// and if that returns #success(newToken), retries the original calendar
+  /// insert with the new token. If the refresh fails (#not_connected,
+  /// #no_refresh_token, or #error), or the retry still 401s, returns
+  /// #auth_expired so the frontend can offer Reconnect. The pre-existing
+  /// #auth_expired return path is preserved for every refresh-not-possible
+  /// case.
+  public func createEvent(
+    store : OAuthLib.TokenStore,
+    caller : Principal,
+    input : EventInput,
+    accessToken : Text,
+  ) : async CreateEventResult {
+    let first = await insertOnce(input, accessToken);
+    switch (first) {
+      case (#auth_expired) {
+        // Attempt one refresh-on-401 retry before surfacing #auth_expired.
+        switch (await OAuthLib.refreshAccessToken(store, caller)) {
+          case (#success(newToken)) {
+            // Retry the original insert with the freshly minted token.
+            // Any failure here (including a second 401) falls through to
+            // #auth_expired so the frontend can offer Reconnect.
+            let retry = await insertOnce(input, newToken);
+            switch (retry) {
+              case (#auth_expired) #auth_expired;
+              case (#success(_)) retry;
+              case (#error(_)) retry;
+            };
+          };
+          // Refresh not possible — preserve the #auth_expired path so the
+          // frontend can offer Reconnect.
+          case (#not_connected) #auth_expired;
+          case (#no_refresh_token) #auth_expired;
+          case (#error(_)) #auth_expired;
+        };
+      };
+      case (#success(_)) first;
+      case (#error(_)) first;
     };
   };
 };

@@ -34,6 +34,19 @@ export type Result = {
     __kind__: "err";
     err: Error_;
 };
+export type RefreshResult = {
+    __kind__: "no_refresh_token";
+    no_refresh_token: null;
+} | {
+    __kind__: "error";
+    error: string;
+} | {
+    __kind__: "success";
+    success: string;
+} | {
+    __kind__: "not_connected";
+    not_connected: null;
+};
 export interface CreatedEvent {
     id: string;
     htmlLink: string;
@@ -99,4 +112,5 @@ export interface backendInterface {
     getCallerUserRole(): Promise<UserRole>;
     get_connection_status(): Promise<ConnectionStatus>;
     isCallerAdmin(): Promise<boolean>;
+    refresh_access_token(): Promise<RefreshResult>;
 }

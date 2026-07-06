@@ -4,6 +4,7 @@ import type {
   CreateEventInput,
   CreateEventResult,
   ExchangeResult,
+  RefreshResult,
 } from "@/types";
 import { useActor } from "@caffeineai/core-infrastructure";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -39,6 +40,28 @@ export function useExchangeAuthCode() {
         throw new Error("Backend connection is still initializing.");
       }
       return actor.exchange_auth_code(code);
+    },
+    onSuccess: (result) => {
+      if (result.__kind__ === "success") {
+        queryClient.setQueryData(STATUS_KEY, ConnectionStatus.connected);
+      }
+    },
+  });
+}
+
+export function useRefreshAccessToken() {
+  const { actor, isFetching } = useActor(createActor);
+  const queryClient = useQueryClient();
+  return useMutation<RefreshResult, Error, void>({
+    mutationKey: ["refreshAccessToken"],
+    mutationFn: async () => {
+      if (!actor) {
+        throw new Error("Backend actor is not available yet.");
+      }
+      if (isFetching) {
+        throw new Error("Backend connection is still initializing.");
+      }
+      return actor.refresh_access_token();
     },
     onSuccess: (result) => {
       if (result.__kind__ === "success") {

@@ -28898,6 +28898,12 @@ const ConnectionStatus$1 = Variant({
   "disconnected": Null,
   "connected": Null
 });
+const RefreshResult = Variant({
+  "no_refresh_token": Null,
+  "error": Text,
+  "success": Text,
+  "not_connected": Null
+});
 Service({
   "__accessControlState": Func([], [Reserved], ["query"]),
   "__tokenStore": Func([], [Reserved], ["query"]),
@@ -28914,7 +28920,8 @@ Service({
   "exchange_auth_code": Func([Text], [ExchangeResult], []),
   "getCallerUserRole": Func([], [UserRole], ["query"]),
   "get_connection_status": Func([], [ConnectionStatus$1], []),
-  "isCallerAdmin": Func([], [Bool], ["query"])
+  "isCallerAdmin": Func([], [Bool], ["query"]),
+  "refresh_access_token": Func([], [RefreshResult], [])
 });
 const idlFactory = ({ IDL: IDL2 }) => {
   const Error2 = IDL2.Variant({
@@ -28959,6 +28966,12 @@ const idlFactory = ({ IDL: IDL2 }) => {
     "disconnected": IDL2.Null,
     "connected": IDL2.Null
   });
+  const RefreshResult2 = IDL2.Variant({
+    "no_refresh_token": IDL2.Null,
+    "error": IDL2.Text,
+    "success": IDL2.Text,
+    "not_connected": IDL2.Null
+  });
   return IDL2.Service({
     "__accessControlState": IDL2.Func([], [IDL2.Reserved], ["query"]),
     "__tokenStore": IDL2.Func([], [IDL2.Reserved], ["query"]),
@@ -28975,7 +28988,8 @@ const idlFactory = ({ IDL: IDL2 }) => {
     "exchange_auth_code": IDL2.Func([IDL2.Text], [ExchangeResult2], []),
     "getCallerUserRole": IDL2.Func([], [UserRole2], ["query"]),
     "get_connection_status": IDL2.Func([], [ConnectionStatus2], []),
-    "isCallerAdmin": IDL2.Func([], [IDL2.Bool], ["query"])
+    "isCallerAdmin": IDL2.Func([], [IDL2.Bool], ["query"]),
+    "refresh_access_token": IDL2.Func([], [RefreshResult2], [])
   });
 };
 new TextEncoder().encode("icfs-chunk/");
@@ -29161,6 +29175,20 @@ class Backend {
       return result;
     }
   }
+  async refresh_access_token() {
+    if (this.processError) {
+      try {
+        const result = await this.actor.refresh_access_token();
+        return from_candid_RefreshResult_n15(this._uploadFile, this._downloadFile, result);
+      } catch (e) {
+        this.processError(e);
+        throw new Error("unreachable");
+      }
+    } else {
+      const result = await this.actor.refresh_access_token();
+      return from_candid_RefreshResult_n15(this._uploadFile, this._downloadFile, result);
+    }
+  }
 }
 function from_candid_ConnectionStatus_n13(_uploadFile, _downloadFile, value) {
   return from_candid_variant_n14(_uploadFile, _downloadFile, value);
@@ -29173,6 +29201,9 @@ function from_candid_Error_n3(_uploadFile, _downloadFile, value) {
 }
 function from_candid_ExchangeResult_n9(_uploadFile, _downloadFile, value) {
   return from_candid_variant_n10(_uploadFile, _downloadFile, value);
+}
+function from_candid_RefreshResult_n15(_uploadFile, _downloadFile, value) {
+  return from_candid_variant_n16(_uploadFile, _downloadFile, value);
 }
 function from_candid_Result_n1(_uploadFile, _downloadFile, value) {
   return from_candid_variant_n2(_uploadFile, _downloadFile, value);
@@ -29194,6 +29225,21 @@ function from_candid_variant_n12(_uploadFile, _downloadFile, value) {
 }
 function from_candid_variant_n14(_uploadFile, _downloadFile, value) {
   return "disconnected" in value ? "disconnected" : "connected" in value ? "connected" : value;
+}
+function from_candid_variant_n16(_uploadFile, _downloadFile, value) {
+  return "no_refresh_token" in value ? {
+    __kind__: "no_refresh_token",
+    no_refresh_token: value.no_refresh_token
+  } : "error" in value ? {
+    __kind__: "error",
+    error: value.error
+  } : "success" in value ? {
+    __kind__: "success",
+    success: value.success
+  } : "not_connected" in value ? {
+    __kind__: "not_connected",
+    not_connected: value.not_connected
+  } : value;
 }
 function from_candid_variant_n2(_uploadFile, _downloadFile, value) {
   return "ok" in value ? {
@@ -32175,6 +32221,27 @@ function useExchangeAuthCode() {
     }
   });
 }
+function useRefreshAccessToken() {
+  const { actor, isFetching } = useActor(createActor);
+  const queryClient2 = useQueryClient();
+  return useMutation({
+    mutationKey: ["refreshAccessToken"],
+    mutationFn: async () => {
+      if (!actor) {
+        throw new Error("Backend actor is not available yet.");
+      }
+      if (isFetching) {
+        throw new Error("Backend connection is still initializing.");
+      }
+      return actor.refresh_access_token();
+    },
+    onSuccess: (result) => {
+      if (result.__kind__ === "success") {
+        queryClient2.setQueryData(STATUS_KEY, ConnectionStatus.connected);
+      }
+    }
+  });
+}
 function useConnectionStatus() {
   const { actor, isFetching } = useActor(createActor);
   return useQuery({
@@ -32892,7 +32959,9 @@ function ResultView({
   result,
   submitted,
   onReset,
-  onReconnect
+  onReconnect,
+  isRefreshing,
+  refreshError
 }) {
   if (result.__kind__ === "error") {
     return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col items-center gap-5 text-center animate-fade-in", children: [
@@ -32938,11 +33007,27 @@ function ResultView({
     ] });
   }
   if (result.__kind__ === "auth_expired") {
+    if (isRefreshing) {
+      return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "div",
+        {
+          className: "flex flex-col items-center gap-5 text-center animate-fade-in",
+          "data-ocid": "event.refreshing_state",
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary", children: /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "size-7 animate-spin" }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "font-display text-xl font-semibold tracking-tight", children: "Refreshing session…" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground", children: "Renewing your Google access so we can finish creating your event." })
+            ] })
+          ]
+        }
+      );
+    }
     return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col items-center gap-5 text-center animate-fade-in", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex size-14 items-center justify-center rounded-full bg-warning/15 text-warning", children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleAlert, { className: "size-7" }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "font-display text-xl font-semibold tracking-tight", children: "Google access expired" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground", children: "Your connection has expired. Reconnect your Google account to continue creating events." })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground break-words", children: refreshError ? refreshError : "Your connection has expired. Reconnect your Google account to continue creating events." })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs(
         Button,
@@ -33010,12 +33095,18 @@ function EventForm() {
   const createEvent = useCreateEvent();
   const connectionStatus = useConnectionStatus();
   const disconnect = useDisconnect();
+  const refreshAccessToken = useRefreshAccessToken();
   const [values, setValues] = reactExports.useState(EMPTY_FORM);
   const [result, setResult] = reactExports.useState(null);
   const [submitted, setSubmitted] = reactExports.useState(EMPTY_FORM);
   const [touched, setTouched] = reactExports.useState({});
+  const [refreshError, setRefreshError] = reactExports.useState(null);
+  const [pendingRetry, setPendingRetry] = reactExports.useState(
+    null
+  );
   const isConnected = connectionStatus.data === ConnectionStatus.connected;
   const isPending = createEvent.isPending;
+  const isRefreshing = refreshAccessToken.isPending;
   const update = (field, v2) => setValues((prev) => ({ ...prev, [field]: v2 }));
   const errors = {};
   if (touched.title && !values.title.trim())
@@ -33053,8 +33144,62 @@ function EventForm() {
     setSubmitted(EMPTY_FORM);
     setValues(EMPTY_FORM);
     setTouched({});
+    setRefreshError(null);
+    setPendingRetry(null);
     createEvent.reset();
+    refreshAccessToken.reset();
   };
+  reactExports.useEffect(() => {
+    if ((result == null ? void 0 : result.__kind__) !== "auth_expired") return;
+    if (isRefreshing) return;
+    if (pendingRetry !== null || refreshError) return;
+    setPendingRetry(submitted);
+    setRefreshError(null);
+    refreshAccessToken.mutate(void 0, {
+      onSuccess: (refreshResult) => {
+        if (refreshResult.__kind__ === "success") {
+          ue.success("Session refreshed. Retrying event creation…");
+          createEvent.mutate(submitted, {
+            onSuccess: (r2) => {
+              setResult(r2);
+              setPendingRetry(null);
+            },
+            onError: (err) => {
+              setResult({ __kind__: "error", error: err.message });
+              setPendingRetry(null);
+            }
+          });
+        } else if (refreshResult.__kind__ === "no_refresh_token") {
+          setRefreshError(
+            "Silent refresh is not available. Please reconnect your Google account."
+          );
+          setPendingRetry(null);
+        } else if (refreshResult.__kind__ === "not_connected") {
+          setRefreshError(
+            "Your Google account is no longer connected. Please reconnect to continue."
+          );
+          setPendingRetry(null);
+        } else {
+          setRefreshError(
+            `Could not refresh session: ${refreshResult.error}. Please reconnect.`
+          );
+          setPendingRetry(null);
+        }
+      },
+      onError: (err) => {
+        setRefreshError(`${err.message}. Please reconnect to continue.`);
+        setPendingRetry(null);
+      }
+    });
+  }, [
+    result,
+    isRefreshing,
+    pendingRetry,
+    refreshError,
+    submitted,
+    refreshAccessToken,
+    createEvent
+  ]);
   if (result) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx(
       ResultView,
@@ -33062,7 +33207,9 @@ function EventForm() {
         result,
         submitted,
         onReset: handleReset,
-        onReconnect: handleConnect
+        onReconnect: handleConnect,
+        isRefreshing,
+        refreshError
       }
     );
   }

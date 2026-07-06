@@ -9,6 +9,13 @@ type Result =
    err: Error;
    ok;
  };
+type RefreshResult = 
+ variant {
+   error: text;
+   no_refresh_token;
+   not_connected;
+   success: text;
+ };
 type ExchangeResult = 
  variant {
    error: text;
@@ -67,4 +74,5 @@ service : {
   getCallerUserRole: () -> (UserRole) query;
   get_connection_status: () -> (ConnectionStatus);
   isCallerAdmin: () -> (bool) query;
+  refresh_access_token: () -> (RefreshResult);
 }

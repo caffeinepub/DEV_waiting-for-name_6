@@ -53,6 +53,12 @@ export const ConnectionStatus = IDL.Variant({
   'disconnected' : IDL.Null,
   'connected' : IDL.Null,
 });
+export const RefreshResult = IDL.Variant({
+  'no_refresh_token' : IDL.Null,
+  'error' : IDL.Text,
+  'success' : IDL.Text,
+  'not_connected' : IDL.Null,
+});
 
 export const idlService = IDL.Service({
   '__accessControlState' : IDL.Func([], [IDL.Reserved], ['query']),
@@ -71,6 +77,7 @@ export const idlService = IDL.Service({
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'get_connection_status' : IDL.Func([], [ConnectionStatus], []),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'refresh_access_token' : IDL.Func([], [RefreshResult], []),
 });
 
 export const idlInitArgs = [];
@@ -118,6 +125,12 @@ export const idlFactory = ({ IDL }) => {
     'disconnected' : IDL.Null,
     'connected' : IDL.Null,
   });
+  const RefreshResult = IDL.Variant({
+    'no_refresh_token' : IDL.Null,
+    'error' : IDL.Text,
+    'success' : IDL.Text,
+    'not_connected' : IDL.Null,
+  });
   
   return IDL.Service({
     '__accessControlState' : IDL.Func([], [IDL.Reserved], ['query']),
@@ -136,6 +149,7 @@ export const idlFactory = ({ IDL }) => {
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'get_connection_status' : IDL.Func([], [ConnectionStatus], []),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'refresh_access_token' : IDL.Func([], [RefreshResult], []),
   });
 };
 

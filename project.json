@@ -1,17 +1,17 @@
 {
-  "overview": "Create Google Calendar events with a title and start/end time using a real Google OAuth 2.0 connection.",
+  "overview": "gggmailer is a Google Calendar event creator that connects via Google OAuth and persists session tokens across canister upgrades.",
   "features": [
-    "Connect your Google account with a one-click OAuth flow",
-    "Create calendar events with just a title and start/end time",
-    "See connected status and disconnect anytime",
-    "Tokens stored securely in the canister across upgrades"
+    "Google OAuth sign-in with refresh token persistence",
+    "Create Google Calendar events",
+    "Silent token refresh when access tokens expire",
+    "Session persistence across canister upgrades via stable memory"
   ],
   "category": "productivity",
   "tags": [
-    "calendar",
-    "google",
     "oauth",
-    "events"
+    "google-calendar",
+    "token-refresh",
+    "stable-memory"
   ],
-  "last_updated": "2026-07-03T15:16:44.894Z"
+  "last_updated": "2026-07-06T13:47:33.312Z"
 }

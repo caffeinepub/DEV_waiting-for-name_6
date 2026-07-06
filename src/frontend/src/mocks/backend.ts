@@ -37,4 +37,13 @@ export const mockBackend: backendInterface = {
   get_connection_status: async () =>
     connected ? ConnectionStatus.connected : ConnectionStatus.disconnected,
   isCallerAdmin: async () => false,
+  refresh_access_token: async () => {
+    if (!connected) {
+      return { __kind__: "not_connected", not_connected: null };
+    }
+    return {
+      __kind__: "success",
+      success: "mock-refreshed-access-token",
+    };
+  },
 };

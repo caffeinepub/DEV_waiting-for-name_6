@@ -21,4 +21,17 @@ mixin (tokenStore : OAuthLib.TokenStore) {
   public shared ({ caller }) func disconnect() : async () {
     OAuthLib.disconnect(tokenStore, caller);
   };
+
+  /// Explicitly refreshes the caller's stored access_token by redeeming the
+  /// stored refresh_token via an HTTPS outcall to
+  /// https://oauth2.googleapis.com/token (grant_type=refresh_token,
+  /// is_replicated=?false). Updates the stored tokens on success, preserving
+  /// the existing refresh_token. Returns #success with the fresh access_token,
+  /// #not_connected if the caller has no stored tokens, #no_refresh_token if
+  /// the stored refresh_token is null, or #error with the Google error
+  /// message on a failed refresh. The frontend can call this to trigger a
+  /// refresh on demand.
+  public shared ({ caller }) func refresh_access_token() : async Types.RefreshResult {
+    await OAuthLib.refreshAccessToken(tokenStore, caller);
+  };
 };

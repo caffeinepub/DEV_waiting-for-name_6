@@ -15,6 +15,12 @@ module {
   public type StoredTokens = Types.StoredTokens;
   public type ExchangeResult = Types.ExchangeResult;
   public type ConnectionStatus = Types.ConnectionStatus;
+  public type RefreshResult = Types.RefreshResult;
+
+  /// Safety margin (nanoseconds) applied to token expiry. A token is treated
+  /// as expired when the current time is within this margin of its expiry or
+  /// past it. 60 seconds in nanoseconds = 60_000_000_000.
+  let expirySafetyMarginNs : Int = 60_000_000_000;
 
   /// Token store: a stable Map keyed by caller Principal.
   public type TokenStore = Map.Map<Principal, StoredTokens>;
@@ -164,14 +170,141 @@ module {
     ignore store.remove(caller);
   };
 
-  /// Retrieves the caller's stored access_token, if present.
+  /// Computes whether the stored token is still valid, applying a safety
+  /// margin so callers refresh slightly before the real expiry. Returns true
+  /// when the token is usable without a refresh outcall.
+  func isTokenFresh(tokens : StoredTokens, now : Int) : Bool {
+    // expiresIn is in seconds; convert to nanoseconds to match storedAt/now.
+    let expiresAtNs = tokens.storedAt + (tokens.expiresIn * 1_000_000_000);
+    now < (expiresAtNs - expirySafetyMarginNs);
+  };
+
+  /// Retrieves the caller's stored access_token, refreshing it on demand if
+  /// it is expired or near-expiry and a refresh_token is available.
+  /// - Returns the stored access_token when it is still valid (no outcall).
+  /// - When expired/near-expiry and a refresh_token exists, redeems it via
+  ///   an HTTPS outcall and returns the newly minted access_token.
+  /// - When expired/near-expiry and no refresh_token exists, returns null so
+  ///   callers can surface a re-consent prompt.
+  /// - When no tokens are stored at all, returns null.
   public func getAccessToken(
     store : TokenStore,
     caller : Principal,
-  ) : ?Text {
+  ) : async ?Text {
     switch (store.get(caller)) {
-      case (?tokens) ?tokens.accessToken;
       case null null;
+      case (?tokens) {
+        if (isTokenFresh(tokens, Time.now())) {
+          ?tokens.accessToken;
+        } else {
+          switch (tokens.refreshToken) {
+            case null null;
+            case (?refreshToken) {
+              switch (await refreshWithToken(store, caller, refreshToken)) {
+                case (#success(newAccessToken)) ?newAccessToken;
+                case (#not_connected) null;
+                case (#no_refresh_token) null;
+                case (#error(_)) null;
+              };
+            };
+          };
+        };
+      };
+    };
+  };
+
+  /// Builds and sends the refresh_token HTTPS outcall, then updates the
+  /// stored tokens on success. Shared by getAccessToken (auto-refresh) and
+  /// refresh_access_token (explicit). Returns the new access_token on
+  /// success. Preserves the existing refresh_token (Google does not always
+  /// return a new one on refresh — no rotation handling).
+  func refreshWithToken(
+    store : TokenStore,
+    caller : Principal,
+    refreshToken : Text,
+  ) : async RefreshResult {
+    let bodyText = "grant_type=refresh_token"
+      # "&client_id=" # clientId
+      # "&client_secret=" # clientSecret
+      # "&refresh_token=" # refreshToken;
+
+    let headers : [HttpHeader] = [
+      { name = "Content-Type"; value = "application/x-www-form-urlencoded" },
+    ];
+
+    let request : HttpRequestArgs = {
+      url = tokenEndpoint;
+      method = #post;
+      headers;
+      body = ?bodyText.encodeUtf8();
+      max_response_bytes = ?2_000;
+      transform = null;
+      is_replicated = ?false; // non-replicated: token response is non-deterministic
+    };
+
+    let response : HttpRequestResult = await http_request(request);
+
+    if (response.status < 200 or response.status >= 300) {
+      let errBody = switch (response.body.decodeUtf8()) {
+        case (?t) t;
+        case null "";
+      };
+      return #error("HTTP " # response.status.toText() # ": " # errBody);
+    };
+
+    let responseText = switch (response.body.decodeUtf8()) {
+      case (?t) t;
+      case null return #error("Failed to decode refresh response as UTF-8");
+    };
+
+    let candid = switch (JSON.toCandid(responseText)) {
+      case (#ok(c)) c;
+      case (#err(msg)) return #error("Failed to parse refresh response JSON: " # msg);
+    };
+
+    let newAccessToken = switch (textField(candid, "access_token")) {
+      case (?t) t;
+      case null return #error("Refresh response missing access_token");
+    };
+
+    let newExpiresIn = switch (natField(candid, "expires_in")) {
+      case (?n) n;
+      case null 3600;
+    };
+
+    // Preserve the existing refresh_token. Google does not always return a
+    // new one on refresh; per doNotBuild we do not handle rotation.
+    let updated : StoredTokens = {
+      accessToken = newAccessToken;
+      refreshToken = ?refreshToken;
+      expiresIn = newExpiresIn;
+      storedAt = Time.now();
+    };
+    store.add(caller, updated);
+    #success(newAccessToken);
+  };
+
+  /// Explicitly redeems the caller's stored refresh_token for a fresh
+  /// access_token via an HTTPS POST to oauth2.googleapis.com/token with
+  /// grant_type=refresh_token, client_id, client_secret, and refresh_token
+  /// (is_replicated=?false, matching exchangeAuthCode). On success, updates
+  /// the stored StoredTokens with the new access_token, new expires_in, and
+  /// storedAt=Time.now(); preserves the existing refresh_token. Returns
+  /// #not_connected if no stored tokens exist, #no_refresh_token if the
+  /// stored refresh_token is null, #error with the Google error message on
+  /// a failed refresh, or #success with the fresh access_token.
+  public func refreshAccessToken(
+    store : TokenStore,
+    caller : Principal,
+  ) : async RefreshResult {
+    switch (store.get(caller)) {
+      case null #not_connected;
+      case (?tokens) {
+        switch (tokens.refreshToken) {
+          case null #no_refresh_token;
+          case (?refreshToken) await refreshWithToken(store, caller, refreshToken);
+        };
+      };
     };
   };
 };

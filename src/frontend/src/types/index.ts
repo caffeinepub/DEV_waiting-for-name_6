@@ -3,6 +3,7 @@ import type {
   CreateEventResult,
   CreatedEvent,
   ExchangeResult,
+  RefreshResult,
 } from "@/backend";
 
 export type {
@@ -10,6 +11,7 @@ export type {
   CreateEventResult,
   CreatedEvent,
   ExchangeResult,
+  RefreshResult,
 };
 
 export interface EventFormValues {

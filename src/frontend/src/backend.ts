@@ -80,6 +80,19 @@ export type Result = {
     __kind__: "err";
     err: Error_;
 };
+export type RefreshResult = {
+    __kind__: "no_refresh_token";
+    no_refresh_token: null;
+} | {
+    __kind__: "error";
+    error: string;
+} | {
+    __kind__: "success";
+    success: string;
+} | {
+    __kind__: "not_connected";
+    not_connected: null;
+};
 export interface CreatedEvent {
     id: string;
     htmlLink: string;
@@ -150,8 +163,9 @@ export interface backendInterface {
     getCallerUserRole(): Promise<UserRole>;
     get_connection_status(): Promise<ConnectionStatus>;
     isCallerAdmin(): Promise<boolean>;
+    refresh_access_token(): Promise<RefreshResult>;
 }
-import type { ConnectionStatus as _ConnectionStatus, CreateEventResult as _CreateEventResult, CreatedEvent as _CreatedEvent, Error as _Error, ExchangeResult as _ExchangeResult, Result as _Result, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
+import type { ConnectionStatus as _ConnectionStatus, CreateEventResult as _CreateEventResult, CreatedEvent as _CreatedEvent, Error as _Error, ExchangeResult as _ExchangeResult, RefreshResult as _RefreshResult, Result as _Result, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
     async __accessControlState(): Promise<any> {
@@ -322,6 +336,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async refresh_access_token(): Promise<RefreshResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.refresh_access_token();
+                return from_candid_RefreshResult_n15(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.refresh_access_token();
+            return from_candid_RefreshResult_n15(this._uploadFile, this._downloadFile, result);
+        }
+    }
 }
 function from_candid_ConnectionStatus_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ConnectionStatus): ConnectionStatus {
     return from_candid_variant_n14(_uploadFile, _downloadFile, value);
@@ -334,6 +362,9 @@ function from_candid_Error_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8
 }
 function from_candid_ExchangeResult_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ExchangeResult): ExchangeResult {
     return from_candid_variant_n10(_uploadFile, _downloadFile, value);
+}
+function from_candid_RefreshResult_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _RefreshResult): RefreshResult {
+    return from_candid_variant_n16(_uploadFile, _downloadFile, value);
 }
 function from_candid_Result_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Result): Result {
     return from_candid_variant_n2(_uploadFile, _downloadFile, value);
@@ -375,6 +406,41 @@ function from_candid_variant_n14(_uploadFile: (file: ExternalBlob) => Promise<Ui
     connected: null;
 }): ConnectionStatus {
     return "disconnected" in value ? ConnectionStatus.disconnected : "connected" in value ? ConnectionStatus.connected : value;
+}
+function from_candid_variant_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    no_refresh_token: null;
+} | {
+    error: string;
+} | {
+    success: string;
+} | {
+    not_connected: null;
+}): {
+    __kind__: "no_refresh_token";
+    no_refresh_token: null;
+} | {
+    __kind__: "error";
+    error: string;
+} | {
+    __kind__: "success";
+    success: string;
+} | {
+    __kind__: "not_connected";
+    not_connected: null;
+} {
+    return "no_refresh_token" in value ? {
+        __kind__: "no_refresh_token",
+        no_refresh_token: value.no_refresh_token
+    } : "error" in value ? {
+        __kind__: "error",
+        error: value.error
+    } : "success" in value ? {
+        __kind__: "success",
+        success: value.success
+    } : "not_connected" in value ? {
+        __kind__: "not_connected",
+        not_connected: value.not_connected
+    } : value;
 }
 function from_candid_variant_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     ok: null;

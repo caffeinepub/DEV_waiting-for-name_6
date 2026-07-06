@@ -34,6 +34,10 @@ export type Error = { 'FrontendOriginsNotConfigured' : null } |
   { 'FrontendOriginMismatch' : { 'got' : string, 'expected' : Array<string> } };
 export type ExchangeResult = { 'error' : string } |
   { 'success' : null };
+export type RefreshResult = { 'no_refresh_token' : null } |
+  { 'error' : string } |
+  { 'success' : string } |
+  { 'not_connected' : null };
 export type Result = { 'ok' : null } |
   { 'err' : Error };
 export type UserRole = { 'admin' : null } |
@@ -52,6 +56,7 @@ export interface _SERVICE {
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'get_connection_status' : ActorMethod<[], ConnectionStatus>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
+  'refresh_access_token' : ActorMethod<[], RefreshResult>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];
