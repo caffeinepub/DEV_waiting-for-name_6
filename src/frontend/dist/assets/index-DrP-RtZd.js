@@ -33430,7 +33430,11 @@ function EventForm() {
 }
 function useHandleOAuthRedirect() {
   const exchange = useExchangeAuthCode();
+  const { actor, isFetching } = useActor(createActor);
   const [isConnecting, setIsConnecting] = reactExports.useState(false);
+  const [connectError, setConnectError] = reactExports.useState(null);
+  const pendingCodeRef = reactExports.useRef(null);
+  const exchangeStartedRef = reactExports.useRef(false);
   reactExports.useEffect(() => {
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
@@ -33451,41 +33455,85 @@ function useHandleOAuthRedirect() {
         state
       );
       ue.error("Connection failed: invalid state. Please try again.");
+      setConnectError("Connection failed: invalid state. Please try again.");
       return;
     }
     console.log(
       "[gggmailer] useHandleOAuthRedirect: state validated against sessionStorage"
     );
+    pendingCodeRef.current = code;
     setIsConnecting(true);
-    console.log(
-      "[gggmailer] useHandleOAuthRedirect: calling exchange.mutate(code)"
+  }, []);
+  reactExports.useEffect(() => {
+    const code = pendingCodeRef.current;
+    if (!code) return;
+    if (actor && !isFetching && !exchangeStartedRef.current) {
+      exchangeStartedRef.current = true;
+      console.log(
+        "[gggmailer] useHandleOAuthRedirect: actor became available, retrying exchange.mutate(code)"
+      );
+      console.log(
+        "[gggmailer] useHandleOAuthRedirect: calling exchange.mutate(code)"
+      );
+      exchange.mutate(code, {
+        onSuccess: (result) => {
+          console.log(
+            "[gggmailer] useHandleOAuthRedirect: exchange onSuccess result.__kind__=",
+            result.__kind__
+          );
+          if (result.__kind__ === "success") {
+            ue.success("Google account connected.");
+          } else {
+            ue.error(`Connection failed: ${result.error}`);
+          }
+        },
+        onError: (err) => {
+          console.error(
+            "[gggmailer] useHandleOAuthRedirect: exchange onError",
+            err
+          );
+          ue.error(err.message);
+        },
+        onSettled: () => setIsConnecting(false)
+      });
+      return;
+    }
+    if (exchangeStartedRef.current) return;
+    console.warn(
+      "[gggmailer] useHandleOAuthRedirect: waiting for the actor to become available (actor is null, isFetching=",
+      isFetching,
+      ")"
     );
-    exchange.mutate(code, {
-      onSuccess: (result) => {
-        console.log(
-          "[gggmailer] useHandleOAuthRedirect: exchange onSuccess result.__kind__=",
-          result.__kind__
-        );
-        if (result.__kind__ === "success") {
-          ue.success("Google account connected.");
-        } else {
-          ue.error(`Connection failed: ${result.error}`);
-        }
-      },
-      onError: (err) => {
+    const POLL_MS = 500;
+    const TIMEOUT_MS = 12e3;
+    const startedAt = Date.now();
+    const intervalId = window.setInterval(() => {
+      if (Date.now() - startedAt >= TIMEOUT_MS) {
+        window.clearInterval(intervalId);
         console.error(
-          "[gggmailer] useHandleOAuthRedirect: exchange onError",
-          err
+          "[gggmailer] useHandleOAuthRedirect: timed out after 12s waiting for the backend actor to become available"
         );
-        ue.error(err.message);
-      },
-      onSettled: () => setIsConnecting(false)
-    });
-  }, [exchange]);
-  return isConnecting;
+        setConnectError(
+          "Could not reach the backend canister. Please refresh the page and try connecting again."
+        );
+        ue.error(
+          "Could not reach the backend canister. Please refresh and try again."
+        );
+        setIsConnecting(false);
+        return;
+      }
+      console.warn(
+        "[gggmailer] useHandleOAuthRedirect: still waiting for the actor to become available (elapsed=",
+        Date.now() - startedAt,
+        "ms)"
+      );
+    }, POLL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [actor, isFetching, exchange]);
+  return { isConnecting, connectError };
 }
 function AppShell() {
-  const isConnecting = useHandleOAuthRedirect();
+  const { isConnecting, connectError } = useHandleOAuthRedirect();
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative min-h-dvh w-full bg-gradient-subtle", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "pointer-events-none absolute inset-x-0 top-0 h-64 bg-gradient-primary opacity-[0.06]" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative mx-auto flex min-h-dvh max-w-md flex-col px-5 py-8 sm:py-12", children: [
@@ -33509,6 +33557,29 @@ function AppShell() {
             children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "size-8 animate-spin text-primary" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground", children: "Exchanging authorization code…" })
+            ]
+          }
+        ) : connectError ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            className: "flex flex-col items-center gap-4 py-8 text-center",
+            "data-ocid": "connection.error_state",
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive", children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleAlert, { className: "size-6" }) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-muted-foreground break-words", children: connectError }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                Button,
+                {
+                  type: "button",
+                  variant: "outline",
+                  onClick: () => window.location.reload(),
+                  "data-ocid": "connection.retry_button",
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { className: "size-4" }),
+                    "Retry connection"
+                  ]
+                }
+              )
             ]
           }
         ) : /* @__PURE__ */ jsxRuntimeExports.jsx(EventForm, {}) }),

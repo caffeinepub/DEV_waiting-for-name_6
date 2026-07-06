@@ -1,4 +1,4 @@
-import { ConnectionStatus } from "@/backend";
+import { ConnectionStatus, createActor } from "@/backend";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -24,6 +24,7 @@ import {
   GOOGLE_SCOPE,
   OAUTH_STATE_KEY,
 } from "@/types";
+import { useActor } from "@caffeineai/core-infrastructure";
 import {
   AlertCircle,
   CalendarPlus,
@@ -38,7 +39,7 @@ import {
   Sun,
 } from "lucide-react";
 import { ThemeProvider, useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 
 const EMPTY_FORM: EventFormValues = {
@@ -664,8 +665,19 @@ function EventForm() {
 
 function useHandleOAuthRedirect() {
   const exchange = useExchangeAuthCode();
+  const { actor, isFetching } = useActor(createActor);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  // The validated authorization code waiting to be redeemed once the actor
+  // becomes available. Set by the URL-detection effect, consumed by the
+  // actor-ready effect.
+  const pendingCodeRef = useRef<string | null>(null);
+  // Guards against firing exchange.mutate more than once for the same code.
+  const exchangeStartedRef = useRef(false);
 
+  // Step 1 — detect ?code/?state, validate state immediately, clean the URL.
+  // This runs once on mount (deps intentionally empty); state validation does
+  // NOT need to wait for the actor.
   useEffect(() => {
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
@@ -691,44 +703,104 @@ function useHandleOAuthRedirect() {
         state,
       );
       toast.error("Connection failed: invalid state. Please try again.");
+      setConnectError("Connection failed: invalid state. Please try again.");
       return;
     }
     console.log(
       "[gggmailer] useHandleOAuthRedirect: state validated against sessionStorage",
     );
 
+    // Stash the validated code; the actor-ready effect below will redeem it.
+    pendingCodeRef.current = code;
     setIsConnecting(true);
-    console.log(
-      "[gggmailer] useHandleOAuthRedirect: calling exchange.mutate(code)",
-    );
-    exchange.mutate(code, {
-      onSuccess: (result) => {
-        console.log(
-          "[gggmailer] useHandleOAuthRedirect: exchange onSuccess result.__kind__=",
-          result.__kind__,
-        );
-        if (result.__kind__ === "success") {
-          toast.success("Google account connected.");
-        } else {
-          toast.error(`Connection failed: ${result.error}`);
-        }
-      },
-      onError: (err) => {
-        console.error(
-          "[gggmailer] useHandleOAuthRedirect: exchange onError",
-          err,
-        );
-        toast.error(err.message);
-      },
-      onSettled: () => setIsConnecting(false),
-    });
-  }, [exchange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  return isConnecting;
+  // Step 2 — wait for the actor to become available, then redeem the code.
+  // Polls every 500ms up to a 12s total timeout. If the actor never resolves,
+  // surface a clear user-facing error.
+  useEffect(() => {
+    const code = pendingCodeRef.current;
+    if (!code) return;
+
+    // Actor is ready — redeem the code exactly once.
+    if (actor && !isFetching && !exchangeStartedRef.current) {
+      exchangeStartedRef.current = true;
+      console.log(
+        "[gggmailer] useHandleOAuthRedirect: actor became available, retrying exchange.mutate(code)",
+      );
+      console.log(
+        "[gggmailer] useHandleOAuthRedirect: calling exchange.mutate(code)",
+      );
+      exchange.mutate(code, {
+        onSuccess: (result) => {
+          console.log(
+            "[gggmailer] useHandleOAuthRedirect: exchange onSuccess result.__kind__=",
+            result.__kind__,
+          );
+          if (result.__kind__ === "success") {
+            toast.success("Google account connected.");
+          } else {
+            toast.error(`Connection failed: ${result.error}`);
+          }
+        },
+        onError: (err) => {
+          console.error(
+            "[gggmailer] useHandleOAuthRedirect: exchange onError",
+            err,
+          );
+          toast.error(err.message);
+        },
+        onSettled: () => setIsConnecting(false),
+      });
+      return;
+    }
+
+    // Actor not ready yet — start polling.
+    if (exchangeStartedRef.current) return;
+    console.warn(
+      "[gggmailer] useHandleOAuthRedirect: waiting for the actor to become available (actor is null, isFetching=",
+      isFetching,
+      ")",
+    );
+
+    const POLL_MS = 500;
+    const TIMEOUT_MS = 12_000;
+    const startedAt = Date.now();
+    const intervalId = window.setInterval(() => {
+      // Read the latest actor via the closure on each tick — this effect
+      // re-runs whenever actor/isFetching change, so the interval is torn down
+      // and recreated with fresh values. The interval is the safety net for
+      // the case where useActor's React Query state updates without remount.
+      if (Date.now() - startedAt >= TIMEOUT_MS) {
+        window.clearInterval(intervalId);
+        console.error(
+          "[gggmailer] useHandleOAuthRedirect: timed out after 12s waiting for the backend actor to become available",
+        );
+        setConnectError(
+          "Could not reach the backend canister. Please refresh the page and try connecting again.",
+        );
+        toast.error(
+          "Could not reach the backend canister. Please refresh and try again.",
+        );
+        setIsConnecting(false);
+        return;
+      }
+      console.warn(
+        "[gggmailer] useHandleOAuthRedirect: still waiting for the actor to become available (elapsed=",
+        Date.now() - startedAt,
+        "ms)",
+      );
+    }, POLL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [actor, isFetching, exchange]);
+
+  return { isConnecting, connectError };
 }
 
 function AppShell() {
-  const isConnecting = useHandleOAuthRedirect();
+  const { isConnecting, connectError } = useHandleOAuthRedirect();
 
   return (
     <div className="relative min-h-dvh w-full bg-gradient-subtle">
@@ -768,6 +840,27 @@ function AppShell() {
                   <p className="text-sm text-muted-foreground">
                     Exchanging authorization code…
                   </p>
+                </div>
+              ) : connectError ? (
+                <div
+                  className="flex flex-col items-center gap-4 py-8 text-center"
+                  data-ocid="connection.error_state"
+                >
+                  <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                    <AlertCircle className="size-6" />
+                  </div>
+                  <p className="text-sm text-muted-foreground break-words">
+                    {connectError}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => window.location.reload()}
+                    data-ocid="connection.retry_button"
+                  >
+                    <RotateCcw className="size-4" />
+                    Retry connection
+                  </Button>
                 </div>
               ) : (
                 <EventForm />
