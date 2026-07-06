@@ -116,7 +116,7 @@ module {
     };
 
     Debug.print("[gggmailer] exchangeAuthCode sending HTTPS POST to token endpoint");
-    let response : HttpRequestResult = await http_request(request);
+    let response : HttpRequestResult = await (with cycles = 100_000_000) http_request(request);
     Debug.print("[gggmailer] exchangeAuthCode HTTP status=" # response.status.toText());
 
     if (response.status < 200 or response.status >= 300) {
@@ -270,7 +270,7 @@ module {
       is_replicated = ?false; // non-replicated: token response is non-deterministic
     };
 
-    let response : HttpRequestResult = await http_request(request);
+    let response : HttpRequestResult = await (with cycles = 100_000_000) http_request(request);
     Debug.print("[gggmailer] refreshWithToken HTTP status=" # response.status.toText());
 
     if (response.status < 200 or response.status >= 300) {
