@@ -32191,11 +32191,18 @@ function useCreateEvent() {
     mutationKey: ["createEvent"],
     mutationFn: async (input) => {
       if (!actor) {
+        console.error(
+          "[gggmailer] useCreateEvent: actor is null — useActor returned null"
+        );
         throw new Error("Backend actor is not available yet.");
       }
       if (isFetching) {
+        console.warn(
+          "[gggmailer] useCreateEvent: actor still initializing, isFetching=true"
+        );
         throw new Error("Backend connection is still initializing.");
       }
+      console.log("[gggmailer] useCreateEvent: calling actor.create_event");
       return actor.create_event(input.title, input.startTime, input.endTime);
     }
   });
@@ -32207,11 +32214,20 @@ function useExchangeAuthCode() {
     mutationKey: ["exchangeAuthCode"],
     mutationFn: async (code) => {
       if (!actor) {
+        console.error(
+          "[gggmailer] useExchangeAuthCode: actor is null — useActor returned null"
+        );
         throw new Error("Backend actor is not available yet.");
       }
       if (isFetching) {
+        console.warn(
+          "[gggmailer] useExchangeAuthCode: actor still initializing, isFetching=true"
+        );
         throw new Error("Backend connection is still initializing.");
       }
+      console.log(
+        "[gggmailer] useExchangeAuthCode: calling actor.exchange_auth_code"
+      );
       return actor.exchange_auth_code(code);
     },
     onSuccess: (result) => {
@@ -32228,11 +32244,20 @@ function useRefreshAccessToken() {
     mutationKey: ["refreshAccessToken"],
     mutationFn: async () => {
       if (!actor) {
+        console.error(
+          "[gggmailer] useRefreshAccessToken: actor is null — useActor returned null"
+        );
         throw new Error("Backend actor is not available yet.");
       }
       if (isFetching) {
+        console.warn(
+          "[gggmailer] useRefreshAccessToken: actor still initializing, isFetching=true"
+        );
         throw new Error("Backend connection is still initializing.");
       }
+      console.log(
+        "[gggmailer] useRefreshAccessToken: calling actor.refresh_access_token"
+      );
       return actor.refresh_access_token();
     },
     onSuccess: (result) => {
@@ -32248,8 +32273,14 @@ function useConnectionStatus() {
     queryKey: STATUS_KEY,
     queryFn: async () => {
       if (!actor) {
+        console.error(
+          "[gggmailer] useConnectionStatus: actor is null — useActor returned null"
+        );
         throw new Error("Backend actor is not available yet.");
       }
+      console.log(
+        "[gggmailer] useConnectionStatus: calling actor.get_connection_status"
+      );
       return actor.get_connection_status();
     },
     enabled: !!actor && !isFetching
@@ -32262,11 +32293,18 @@ function useDisconnect() {
     mutationKey: ["disconnect"],
     mutationFn: async () => {
       if (!actor) {
+        console.error(
+          "[gggmailer] useDisconnect: actor is null — useActor returned null"
+        );
         throw new Error("Backend actor is not available yet.");
       }
       if (isFetching) {
+        console.warn(
+          "[gggmailer] useDisconnect: actor still initializing, isFetching=true"
+        );
         throw new Error("Backend connection is still initializing.");
       }
+      console.log("[gggmailer] useDisconnect: calling actor.disconnect");
       await actor.disconnect();
     },
     onSuccess: () => {
@@ -33151,14 +33189,41 @@ function EventForm() {
   };
   reactExports.useEffect(() => {
     if ((result == null ? void 0 : result.__kind__) !== "auth_expired") return;
-    if (isRefreshing) return;
-    if (pendingRetry !== null || refreshError) return;
+    console.log(
+      "[gggmailer] EventForm silent-refresh useEffect: entered with result.__kind__=",
+      result == null ? void 0 : result.__kind__
+    );
+    if (isRefreshing) {
+      console.warn(
+        "[gggmailer] EventForm silent-refresh useEffect: returning early — isRefreshing=true"
+      );
+      return;
+    }
+    if (pendingRetry !== null || refreshError) {
+      console.warn(
+        "[gggmailer] EventForm silent-refresh useEffect: returning early — pendingRetry=",
+        pendingRetry,
+        "refreshError=",
+        refreshError
+      );
+      return;
+    }
     setPendingRetry(submitted);
     setRefreshError(null);
+    console.log(
+      "[gggmailer] EventForm silent-refresh useEffect: calling refreshAccessToken.mutate"
+    );
     refreshAccessToken.mutate(void 0, {
       onSuccess: (refreshResult) => {
         if (refreshResult.__kind__ === "success") {
+          console.log(
+            "[gggmailer] EventForm silent-refresh: refreshResult #success, payload=",
+            refreshResult
+          );
           ue.success("Session refreshed. Retrying event creation…");
+          console.log(
+            "[gggmailer] EventForm silent-refresh: retrying createEvent.mutate(submitted)"
+          );
           createEvent.mutate(submitted, {
             onSuccess: (r2) => {
               setResult(r2);
@@ -33170,16 +33235,28 @@ function EventForm() {
             }
           });
         } else if (refreshResult.__kind__ === "no_refresh_token") {
+          console.error(
+            "[gggmailer] EventForm silent-refresh: refreshResult #no_refresh_token, payload=",
+            refreshResult
+          );
           setRefreshError(
             "Silent refresh is not available. Please reconnect your Google account."
           );
           setPendingRetry(null);
         } else if (refreshResult.__kind__ === "not_connected") {
+          console.error(
+            "[gggmailer] EventForm silent-refresh: refreshResult #not_connected, payload=",
+            refreshResult
+          );
           setRefreshError(
             "Your Google account is no longer connected. Please reconnect to continue."
           );
           setPendingRetry(null);
         } else {
+          console.error(
+            "[gggmailer] EventForm silent-refresh: refreshResult #error, payload=",
+            refreshResult
+          );
           setRefreshError(
             `Could not refresh session: ${refreshResult.error}. Please reconnect.`
           );
@@ -33187,6 +33264,10 @@ function EventForm() {
         }
       },
       onError: (err) => {
+        console.error(
+          "[gggmailer] EventForm silent-refresh: refreshAccessToken onError",
+          err
+        );
         setRefreshError(`${err.message}. Please reconnect to continue.`);
         setPendingRetry(null);
       }
@@ -33355,25 +33436,49 @@ function useHandleOAuthRedirect() {
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     if (!code || !state) return;
+    console.log("[gggmailer] useHandleOAuthRedirect: ?code detected in URL");
+    console.log("[gggmailer] useHandleOAuthRedirect: ?state detected in URL");
     const stored = sessionStorage.getItem(OAUTH_STATE_KEY);
     sessionStorage.removeItem(OAUTH_STATE_KEY);
     url.searchParams.delete("code");
     url.searchParams.delete("state");
     window.history.replaceState({}, "", url.toString());
     if (!stored || stored !== state) {
+      console.error(
+        "[gggmailer] useHandleOAuthRedirect: state mismatch — stored=",
+        stored,
+        "received=",
+        state
+      );
       ue.error("Connection failed: invalid state. Please try again.");
       return;
     }
+    console.log(
+      "[gggmailer] useHandleOAuthRedirect: state validated against sessionStorage"
+    );
     setIsConnecting(true);
+    console.log(
+      "[gggmailer] useHandleOAuthRedirect: calling exchange.mutate(code)"
+    );
     exchange.mutate(code, {
       onSuccess: (result) => {
+        console.log(
+          "[gggmailer] useHandleOAuthRedirect: exchange onSuccess result.__kind__=",
+          result.__kind__
+        );
         if (result.__kind__ === "success") {
           ue.success("Google account connected.");
         } else {
           ue.error(`Connection failed: ${result.error}`);
         }
       },
-      onError: (err) => ue.error(err.message),
+      onError: (err) => {
+        console.error(
+          "[gggmailer] useHandleOAuthRedirect: exchange onError",
+          err
+        );
+        ue.error(err.message);
+      },
       onSettled: () => setIsConnecting(false)
     });
   }, [exchange]);

@@ -1,3 +1,4 @@
+import Debug "mo:core/Debug";
 import Error "mo:core/Error";
 import EventsApi "mo:googlecalendar-client/Apis/EventsApi";
 import { type CalendarCalendarsInsertAltParameter; JSON = CalendarCalendarsInsertAltParameter } "mo:googlecalendar-client/Models/CalendarCalendarsInsertAltParameter";
@@ -47,6 +48,7 @@ module {
         is_replicated = ?false; // CRITICAL: replicated writes duplicate across ~13 replicas and fail IC consensus
     };
 
+    Debug.print("[gggmailer] insertOnce sending calendar_events_insert outcall");
     try {
       let created = await* EventsApi.calendar_events_insert(
         config,
@@ -65,6 +67,7 @@ module {
         false, // supportsAttachments
         event,
       );
+      Debug.print("[gggmailer] insertOnce HTTP success — calendar event created");
       let id = switch (created.id) {
         case (?t) t;
         case null "";
@@ -77,7 +80,9 @@ module {
     } catch (e) {
       let msg = e.message();
       // The connector throws Error.reject("HTTP 401 ...") on expired tokens.
-      if (msg.contains(#text "HTTP 401")) {
+      let mappedToAuthExpired = msg.contains(#text "HTTP 401");
+      Debug.print("[gggmailer] insertOnce Error.reject: " # msg # " mappedToAuthExpired=" # (if mappedToAuthExpired { "true" } else { "false" }));
+      if (mappedToAuthExpired) {
         #auth_expired;
       } else {
         #error(msg);
@@ -106,31 +111,59 @@ module {
     input : EventInput,
     accessToken : Text,
   ) : async CreateEventResult {
+    Debug.print("[gggmailer] createEvent entry title=" # input.title);
     let first = await insertOnce(input, accessToken);
     switch (first) {
       case (#auth_expired) {
+        Debug.print("[gggmailer] createEvent first insertOnce returned #auth_expired — triggering 401-retry path");
         // Attempt one refresh-on-401 retry before surfacing #auth_expired.
-        switch (await OAuthLib.refreshAccessToken(store, caller)) {
+        let refreshOutcome = await OAuthLib.refreshAccessToken(store, caller);
+        switch (refreshOutcome) {
           case (#success(newToken)) {
+            Debug.print("[gggmailer] createEvent refreshAccessToken #success — retrying insertOnce with new token");
             // Retry the original insert with the freshly minted token.
             // Any failure here (including a second 401) falls through to
             // #auth_expired so the frontend can offer Reconnect.
             let retry = await insertOnce(input, newToken);
             switch (retry) {
-              case (#auth_expired) #auth_expired;
-              case (#success(_)) retry;
-              case (#error(_)) retry;
+              case (#auth_expired) {
+                Debug.print("[gggmailer] createEvent retry insertOnce returned #auth_expired — final return #auth_expired");
+                #auth_expired;
+              };
+              case (#success(_)) {
+                Debug.print("[gggmailer] createEvent retry insertOnce returned #success — final return #success");
+                retry;
+              };
+              case (#error(_)) {
+                Debug.print("[gggmailer] createEvent retry insertOnce returned #error — final return #error");
+                retry;
+              };
             };
           };
           // Refresh not possible — preserve the #auth_expired path so the
           // frontend can offer Reconnect.
-          case (#not_connected) #auth_expired;
-          case (#no_refresh_token) #auth_expired;
-          case (#error(_)) #auth_expired;
+          case (#not_connected) {
+            Debug.print("[gggmailer] createEvent refreshAccessToken #not_connected — final return #auth_expired");
+            #auth_expired;
+          };
+          case (#no_refresh_token) {
+            Debug.print("[gggmailer] createEvent refreshAccessToken #no_refresh_token — final return #auth_expired");
+            #auth_expired;
+          };
+          case (#error(_)) {
+            Debug.print("[gggmailer] createEvent refreshAccessToken #error — final return #auth_expired");
+            #auth_expired;
+          };
         };
       };
-      case (#success(_)) first;
-      case (#error(_)) first;
+      case (#success(_)) {
+        Debug.print("[gggmailer] createEvent first insertOnce returned #success — final return #success");
+        first;
+      };
+      case (#error(_)) {
+        Debug.print("[gggmailer] createEvent first insertOnce returned #error — final return #error");
+        first;
+      };
     };
   };
 };

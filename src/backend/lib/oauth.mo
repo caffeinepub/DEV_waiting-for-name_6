@@ -1,5 +1,6 @@
 import Array "mo:core/Array";
 import Blob "mo:core/Blob";
+import Debug "mo:core/Debug";
 import Int "mo:core/Int";
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
@@ -93,6 +94,7 @@ module {
     caller : Principal,
     code : Text,
   ) : async ExchangeResult {
+    Debug.print("[gggmailer] exchangeAuthCode entry caller=" # caller.toText());
     let bodyText = "grant_type=authorization_code"
       # "&code=" # code
       # "&client_id=" # clientId
@@ -113,13 +115,16 @@ module {
       is_replicated = ?false; // non-replicated: token response is non-deterministic
     };
 
+    Debug.print("[gggmailer] exchangeAuthCode sending HTTPS POST to token endpoint");
     let response : HttpRequestResult = await http_request(request);
+    Debug.print("[gggmailer] exchangeAuthCode HTTP status=" # response.status.toText());
 
     if (response.status < 200 or response.status >= 300) {
       let bodyText = switch (response.body.decodeUtf8()) {
         case (?t) t;
         case null "";
       };
+      Debug.print("[gggmailer] exchangeAuthCode error: HTTP " # response.status.toText() # ": " # bodyText);
       return #error("HTTP " # response.status.toText() # ": " # bodyText);
     };
 
@@ -151,6 +156,7 @@ module {
       storedAt = Time.now();
     };
     store.add(caller, tokens);
+    Debug.print("[gggmailer] exchangeAuthCode success expires_in=" # expiresIn.toText());
     #success;
   };
 
@@ -192,19 +198,40 @@ module {
     caller : Principal,
   ) : async ?Text {
     switch (store.get(caller)) {
-      case null null;
+      case null {
+        Debug.print("[gggmailer] getAccessToken no stored tokens for caller");
+        null;
+      };
       case (?tokens) {
         if (isTokenFresh(tokens, Time.now())) {
+          Debug.print("[gggmailer] getAccessToken stored token is fresh — no refresh needed");
           ?tokens.accessToken;
         } else {
+          Debug.print("[gggmailer] getAccessToken stored token is expired/near-expiry — triggering refresh");
           switch (tokens.refreshToken) {
-            case null null;
+            case null {
+              Debug.print("[gggmailer] getAccessToken no refresh_token available — returning null");
+              null;
+            };
             case (?refreshToken) {
-              switch (await refreshWithToken(store, caller, refreshToken)) {
-                case (#success(newAccessToken)) ?newAccessToken;
-                case (#not_connected) null;
-                case (#no_refresh_token) null;
-                case (#error(_)) null;
+              let refreshOutcome = await refreshWithToken(store, caller, refreshToken);
+              switch (refreshOutcome) {
+                case (#success(newAccessToken)) {
+                  Debug.print("[gggmailer] getAccessToken refreshWithToken #success — returning new access token");
+                  ?newAccessToken;
+                };
+                case (#not_connected) {
+                  Debug.print("[gggmailer] getAccessToken refreshWithToken #not_connected — returning null");
+                  null;
+                };
+                case (#no_refresh_token) {
+                  Debug.print("[gggmailer] getAccessToken refreshWithToken #no_refresh_token — returning null");
+                  null;
+                };
+                case (#error(msg)) {
+                  Debug.print("[gggmailer] getAccessToken refreshWithToken #error: " # msg # " — returning null");
+                  null;
+                };
               };
             };
           };
@@ -223,6 +250,7 @@ module {
     caller : Principal,
     refreshToken : Text,
   ) : async RefreshResult {
+    Debug.print("[gggmailer] refreshWithToken entry caller=" # caller.toText());
     let bodyText = "grant_type=refresh_token"
       # "&client_id=" # clientId
       # "&client_secret=" # clientSecret
@@ -243,12 +271,14 @@ module {
     };
 
     let response : HttpRequestResult = await http_request(request);
+    Debug.print("[gggmailer] refreshWithToken HTTP status=" # response.status.toText());
 
     if (response.status < 200 or response.status >= 300) {
       let errBody = switch (response.body.decodeUtf8()) {
         case (?t) t;
         case null "";
       };
+      Debug.print("[gggmailer] refreshWithToken error: HTTP " # response.status.toText() # ": " # errBody);
       return #error("HTTP " # response.status.toText() # ": " # errBody);
     };
 
@@ -281,6 +311,7 @@ module {
       storedAt = Time.now();
     };
     store.add(caller, updated);
+    Debug.print("[gggmailer] refreshWithToken success new expires_in=" # newExpiresIn.toText());
     #success(newAccessToken);
   };
 
@@ -297,12 +328,39 @@ module {
     store : TokenStore,
     caller : Principal,
   ) : async RefreshResult {
+    Debug.print("[gggmailer] refreshAccessToken entry caller=" # caller.toText());
     switch (store.get(caller)) {
-      case null #not_connected;
+      case null {
+        Debug.print("[gggmailer] refreshAccessToken returning #not_connected");
+        #not_connected;
+      };
       case (?tokens) {
         switch (tokens.refreshToken) {
-          case null #no_refresh_token;
-          case (?refreshToken) await refreshWithToken(store, caller, refreshToken);
+          case null {
+            Debug.print("[gggmailer] refreshAccessToken returning #no_refresh_token");
+            #no_refresh_token;
+          };
+          case (?refreshToken) {
+            let outcome = await refreshWithToken(store, caller, refreshToken);
+            switch (outcome) {
+              case (#success(newToken)) {
+                Debug.print("[gggmailer] refreshAccessToken returning #success with new access token");
+                #success(newToken);
+              };
+              case (#not_connected) {
+                Debug.print("[gggmailer] refreshAccessToken returning #not_connected");
+                #not_connected;
+              };
+              case (#no_refresh_token) {
+                Debug.print("[gggmailer] refreshAccessToken returning #no_refresh_token");
+                #no_refresh_token;
+              };
+              case (#error(msg)) {
+                Debug.print("[gggmailer] refreshAccessToken returning #error: " # msg);
+                #error(msg);
+              };
+            };
+          };
         };
       };
     };
