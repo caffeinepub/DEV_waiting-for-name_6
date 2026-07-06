@@ -1,0 +1,46 @@
+// Version: 4.0.0
+type AccessControlState__647610379 =
+  {
+    var adminAssigned : Bool;
+    userRoles : Map__246123559<Principal, UserRole__1049403868>
+  };
+type Data__552063367<K, V> = {var count : Nat__93962160; kvs : [var ?(K, V)]};
+type Internal__455405067<K, V> =
+  {children : [var ?Node__279997185<K, V>]; data : Data__552063367<K, V>};
+type Leaf__114713147<K, V> = {data : Data__552063367<K, V>};
+type Map__190625089<K, V> = Map__719753394<K, V>;
+type Map__246123559<K, V> = Map__190625089<K, V>;
+type Map__719753394<K, V> =
+  {var root : Node__279997185<K, V>; var size : Nat__93962160};
+type Nat__920180692 = Nat;
+type Nat__93962160 = Nat__920180692;
+type NewActor__841704482 =
+  {
+    accessControlState : AccessControlState__647610379;
+    tokenStore : Map__246123559<Principal, StoredTokens__120035572>
+  };
+type Node__279997185<K, V> =
+  {#internal : Internal__455405067<K, V>; #leaf : Leaf__114713147<K, V>};
+type OldActor__930178732 = {};
+type StoredTokens__120035572 =
+  {accessToken : Text; expiresIn : Nat; refreshToken : ?Text; storedAt : Int};
+type StoredTokens__436009984 = StoredTokens__915623573;
+type StoredTokens__915623573 =
+  {accessToken : Text; expiresIn : Nat; refreshToken : ?Text; storedAt : Int};
+type UserRole__1049403868 = {#admin; #guest; #user};
+type UserRole__686137147 = {#admin; #guest; #user};
+{
+  "20260703_133642" : (old : OldActor__930178732) -> NewActor__841704482
+}
+actor  {
+  stable accessControlState :
+    {
+      var adminAssigned : Bool;
+      userRoles : Map__246123559<Principal, UserRole__686137147>
+    };
+  stable tokenStore :
+    {
+      var root : Node__279997185<Principal, StoredTokens__436009984>;
+      var size : Nat__93962160
+    }
+};

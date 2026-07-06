@@ -1,0 +1,17 @@
+{
+  "overview": "Create Google Calendar events with a title and start/end time using a real Google OAuth 2.0 connection.",
+  "features": [
+    "Connect your Google account with a one-click OAuth flow",
+    "Create calendar events with just a title and start/end time",
+    "See connected status and disconnect anytime",
+    "Tokens stored securely in the canister across upgrades"
+  ],
+  "category": "productivity",
+  "tags": [
+    "calendar",
+    "google",
+    "oauth",
+    "events"
+  ],
+  "last_updated": "2026-07-03T15:16:44.894Z"
+}

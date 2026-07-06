@@ -1,0 +1,70 @@
+type UserRole = 
+ variant {
+   admin;
+   guest;
+   user;
+ };
+type Result = 
+ variant {
+   err: Error;
+   ok;
+ };
+type ExchangeResult = 
+ variant {
+   error: text;
+   success;
+ };
+type Error = 
+ variant {
+   AmbiguousAttribute: record {
+                         field: text;
+                         sources: vec text;
+                       };
+   FrontendOriginMismatch: record {
+                             expected: vec text;
+                             got: text;
+                           };
+   FrontendOriginsNotConfigured;
+   MalformedCandid;
+   MissingField: text;
+   MixedSsoSources: record {
+                      otherKeys: vec text;
+                      ssoKeys: vec text;
+                    };
+   NoAttributes;
+   Stale: record {ageNs: nat;};
+   UnknownNonce;
+   UntrustedSsoSource: record {domain: text;};
+ };
+type CreatedEvent = 
+ record {
+   htmlLink: text;
+   id: text;
+ };
+type CreateEventResult = 
+ variant {
+   auth_expired;
+   error: text;
+   not_connected;
+   success: CreatedEvent;
+ };
+type ConnectionStatus = 
+ variant {
+   connected;
+   disconnected;
+ };
+service : {
+  __accessControlState: () -> (reserved) query;
+  __tokenStore: () -> (reserved) query;
+  _initialize_access_control: () -> ();
+  _internet_identity_sign_in_finish: () -> (Result);
+  _internet_identity_sign_in_start: () -> (blob);
+  assignCallerUserRole: (user: principal, role: UserRole) -> ();
+  create_event: (title: text, startTime: text, endTime: text) ->
+   (CreateEventResult);
+  disconnect: () -> ();
+  exchange_auth_code: (code: text) -> (ExchangeResult);
+  getCallerUserRole: () -> (UserRole) query;
+  get_connection_status: () -> (ConnectionStatus);
+  isCallerAdmin: () -> (bool) query;
+}
